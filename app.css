@@ -15,12 +15,24 @@ body {
   min-height: 100%;
 }
 
-.personList {
+.presenceBox {
   padding: 1em;
 }
 
 .portrait {
   display: inline-block;
+}
+
+.portrait img {
+  -webkit-filter: sepia(1);
+     -moz-filter: sepia(1);
+      -ms-filter: sepia(1);
+       -o-filter: sepia(1);
+          filter: sepia(1);
+}
+
+.portrait video {
+  
 }
 
 .portrait .nick {

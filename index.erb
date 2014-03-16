@@ -2,16 +2,19 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Present WebRTC</title>
+    <title>Presence WebRTC</title>
     <link rel=stylesheet
       href="//cdnjs.cloudflare.com/ajax/libs/normalize/3.0.0/normalize.css">
     <link rel=stylesheet href="app.css">
   </head>
-  <body>
+  <body data-nick="<%= nick %>" data-pusher-token="<%= pusher_token %>">
     <div id="content"></div>
 
     <script
       src="//d3dy5gmtp8yhk7.cloudfront.net/2.1/pusher.js"></script>
+    <script>
+pusher = new Pusher("a1ef4d95b2ea5f33a5b9");
+    </script>
     <script
       src="//cdnjs.cloudflare.com/ajax/libs/react/0.9.0/react-with-addons.js">
     </script>

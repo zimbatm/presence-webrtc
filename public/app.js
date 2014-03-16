@@ -2,6 +2,8 @@
  * @jsx React.DOM
  */
 
+// Polyfills
+
 navigator.getMedia = (
 	navigator.getUserMedia ||
 	navigator.webkitGetUserMedia ||
@@ -12,38 +14,47 @@ navigator.getMedia = (
 window.URL || (window.URL = window.webkitURL);
 window.audioContext || (window.audioContext = window.webkitAudioContext);
 
+if (!Date.now) {
+	Date.now = function now() {
+		return new Date().getTime();
+	};
+}
+
+// Config
+
 Pusher.log = window.console.log.bind(window.console);
 
-var pusher = new Pusher('a1ef4d95b2ea5f33a5b9');
-window.sessionStorage || (window.sessionStorage = {});
+// Functions
 
 function once(fn) {
 	return function () {
 		if (fn.hasRun) return;
 		fn.hasRun = true;
 		fn.apply(this, arguments);
-	}
+	};
 }
 
-function merge(obj1, obj2) {
-	var o = {}, key;
-	for (key in obj1) {
-		o[key] = obj1[key];
-	}
-	for (key in obj2) {
-		o[key] = obj2[key];
-	}
-	return o;
+function merge(target /*...*/) {
+	var others = Array.prototype.slice.call(arguments, 1), i, l;
+
+	others.forEach(function(obj) {
+		for (key in obj) {
+			target[key] = obj[key];
+		}
+	});
+
+	return target;
 }
 
 function getNick() {
-	var nick = window.sessionStorage["nick"];
-	if (nick) return nick;
-	window.sessionStorage["nick"] = prompt("What's your nick ?");
-	return window.sessionStorage["nick"];
+	return document.body.getAttribute("data-nick");
 }
 
-function getMugShot(stream, success, error) {
+function getUserId() {
+	return document.body.getAttribute("data-user-id");
+}
+
+function getMugShot(stream, success, error, binding) {
 	var canvas = document.createElement("canvas");
 	var vid = document.createElement("video");
 	vid.autoplay = true;
@@ -58,7 +69,7 @@ function getMugShot(stream, success, error) {
 		canvas.height = vid.videoHeight;
 		canvas.getContext("2d").drawImage(vid, 0, 0);
 
-		success(canvas.toDataURL("image/png"));
+		success.call(binding, canvas.toDataURL("image/png"));
 	});
 	vid.onerror = error;
 }
@@ -94,18 +105,49 @@ function handleError() {
 	console.log("RTC error", arguments);
 }
 
+function rateLimited(num_per_sec, proc) {
+	var tid = null, buffer = [];
+	return function() {
+		var self=this;
+		buffer.push(Array.prototype.slice.call(arguments));
+		if (!tid) {
+			tid = setInterval(function() {
+				var args = buffer.shift();
+				proc.apply(self, args);
+				if (buffer.length === 0) {
+					clearTimeout(tid);
+					tid = null;
+				}
+			}, 1000 / (num_per_sec - 1));
+		}
+	}
+}
+
+function MessagingService() {
+	
+}
+
+merge(MessagingService.prototype, {
+	foo: function() {
+		
+	}
+
+});
+
+// Components
+
 
 var Portrait = React.createClass({
 	handleClick: function() {
-		this.props.onClick(this.props.nick);
+		this.props.onClick(this.props.user);
 	},
 	
 	render: function() {
 		if (this.props.live) {
 			return (
 				<div className="portrait" onClick={this.handleClick}>
-					<div className="nick">{this.props.nick}</div>
-					<video src={this.props.stream && window.URL.createObjectURL(this.props.stream)} autoplay height="160" />
+					<div className="nick" label={this.props.user.id}>{this.props.user.nick}</div>
+					<video src={this.props.user.stream && window.URL.createObjectURL(this.props.user.stream)} autoplay height="160" />
 				</div>
 			);
 		} else {
@@ -123,7 +165,6 @@ var PresenceBox = React.createClass({
 	handleSelfClick: function() {
 		console.log("Toggle", this, arguments);
 		this.getSelfMugshot()
-		//this.setState({self: merge(this.state.self, {live: !this.state.self.live})});
 	},
 	handleOtherClick: function() {
 		console.log("Ping", this, arguments);
@@ -132,17 +173,18 @@ var PresenceBox = React.createClass({
 		if (!this.state.self.stream) return;
 		getMugShot(this.state.self.stream,
 			function(newImage) {
-				var newSelf = merge(this.state.self, {
+				var newSelf = merge({}, this.state.self, {
 					image: newImage,
 				});
 
 				console.log("new self", newSelf);
 
 				this.setState({self: newSelf});	
-			}.bind(this),
+			},
 			function(error) {
 				console.log("mugshot error", error);
-			}
+			},
+			this
 		);
 	},
 	getMediaStream: function() {
@@ -151,7 +193,7 @@ var PresenceBox = React.createClass({
 				audio: true
 			},
 			function(stream) {
-				var newSelf = merge(this.state.self, {
+				var newSelf = merge({}, this.state.self, {
 					stream: stream,
 				});
 
@@ -169,77 +211,93 @@ var PresenceBox = React.createClass({
 	initiateCall: function() {
 		var stream = this.state.self.stream;
 		var pc = this.state.pc;
-		var channel = this.state.channel;
 		
 		if (stream.getVideoTracks().length > 0) {
-			trace('Using video device: ' + stream.getVideoTracks()[0].label);
+			trace("Using video device: " + stream.getVideoTracks()[0].label);
 		}
 		if (stream.getAudioTracks().length > 0) {
-			trace('Using audio device: ' + stream.getAudioTracks()[0].label);
+			trace("Using audio device: " + stream.getAudioTracks()[0].label);
 		}
 
 		function setLocalAndSendMessage(desc) {
+			var self = this.state.self;
+			
 			console.log("offer", desc);
 			pc.setLocalDescription(desc);
-			channel.trigger("client-offer", {sdp: desc.sdp});
+			this.trigger("client-offer", {user_id: self.id, sdp: desc.sdp});
 			// trace("Offer from pc1 \n" + desc.sdp);
 			// pc2.setRemoteDescription(desc);
 			// pc2.createAnswer(gotDescription2);
-		}
+		};
 
 		function fail(err) {
 			console.log("create offer error", err)
 		}
 
 		pc.addStream(stream);
-		pc.createOffer(setLocalAndSendMessage, fail, {});
+		pc.createOffer(setLocalAndSendMessage.bind(this), fail, {});
 	},
+	bind: function(event_name, cb, binding) {
+		this.state.channel.bind(event_name, cb.bind(binding || this));
+	},
+	trigger: rateLimited(10, function(event_name, data) {
+		this.state.channel.trigger(event_name, data);
+	}),
 	
 	getInitialState: function() {
-		var servers = {
-			iceServers: [{
-				url: "stun:stun.l.google.com:19302"
-			}]
-		};
-
-		var contraints = {};
+		var pcConfig = {iceServers: [{urls: "stun:stun.l.google.com:19302"}]};
+		var pcConstraints = {"optional": []};
 
 		var self = {
+			id: getUserId(),
 			nick: getNick(),
 			image: "unknown.gif",
 			stream: null,
 			live: false,
 		};
 		return {
-			constraints: contraints,
-			channel: pusher.subscribe('rtc', {nick: self.nick}),
-			pc: new RTCPeerConnection(servers, contraints),
+			channel: pusher.subscribe("presence-rtc", {nick: self.nick}),
+			pc: new RTCPeerConnection(pcConfig, pcConstraints),
 			self: self,
 			others: [],
 		};
 	},
 	componentWillMount: function() {
 		var pc = this.state.pc;
-		var channel = this.state.channel;
-		
-		
-		pc.onicecandidate = function(event) {
-			if (event.candidate) {
-				console.log("ice-candidate", event);
-				channel.trigger("client-candidate", {candidate: event.candidate});
-			}
-		};
-		
-		channel.bind('pusher:subscription_succeeded', function() {
+
+		this.bind("pusher:member_added", function(data) {
+			console.log("Member added", data);
+		});
+
+		this.bind("pusher:member_removed", function(data) {
+			console.log("Member removed", data);
+		});
+
+		this.bind("pusher:subscription_succeeded", function() {
+			console.log("user", this.state.channel.members.me);
+
+			this.getMediaStream();
+
+			pc.onicecandidate = function(event) {
+				if (event.candidate) {
+					var self = this.state.self;
+					console.log("ice-candidate", event);
+					this.trigger("client-candidate", {user_id: self.id, candidate: event.candidate});
+				}
+			}.bind(this);
+			
+
 			// Broadcast yourself
-			var self = this.state.self;
-			channel.trigger('client-info', { nick: self.nick, image: self.image });
-		}.bind(this));
+			// var self = this.state.self;
+			// this.trigger("client-info", {id: self.id, nick: self.nick, image: self.image });
+		});
 		
-		channel.bind('client-info', function(data) {
+		this.bind("client-info", function(data) {
 			var self = this.state.self;
+			if (self.id === data.id) return;
 			
 			var newOthers = this.state.others.concat([{
+				id: data.id,
 				nick: data.nick,
 				image: "unknown.gif",
 				stream: null,
@@ -247,18 +305,23 @@ var PresenceBox = React.createClass({
 			}])
 
 			// Reply with our own infos
-			channel.trigger('client-info', { nick: self.nick, image: self.image });
-		}.bind(this));
+			this.trigger("client-info", { id: self.id, nick: self.nick, image: self.image });
+		});
 		
-		channel.bind('client-candidate', function(data) {
+		this.bind("client-candidate", function(data) {
+			var self = this.state.self;
+			if (self.id === data.user_id) return;
+			
 			console.log("data", data);
 			pc.addIceCandidate(new RTCIceCandidate(data.candidate));
 		});
 		
-		channel.bind('client-offer', function(data) {
+		this.bind("client-offer", function(data) {
+			var self = this.state.self;
+			if (self.id === data.user_id) return;
+			
 			pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
 		});
-		this.getMediaStream();
 		// setInterval(this.getSelfMugshot.bind(this), 2000);
 	},
 	render: function() {
@@ -276,5 +339,5 @@ var PresenceBox = React.createClass({
 
 React.renderComponent(
 	<PresenceBox />,
-	document.getElementById('content')
+	document.getElementById("content")
 );

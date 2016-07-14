@@ -34,6 +34,13 @@ post "/logout" do
   redirect to('/login')
 end
 
+post "/presence" do
+  data = JSON.load env['rack.input'].read
+  require 'pp'
+  pp data
+  ''
+end
+
 post "/pusher/auth" do
   need_auth!
   content_type :json

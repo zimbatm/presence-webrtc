@@ -26,6 +26,10 @@ Pusher.log = window.console.log.bind(window.console);
 
 // Functions
 
+function trace(message) {
+  console.log(message);
+}
+
 function once(fn) {
 	return function () {
 		if (fn.hasRun) return;
